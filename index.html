@@ -142,7 +142,16 @@ let tab = 'dashboard', editing = null, preselectHouse = null, histHouse = 'all';
 const peso = n => new Intl.NumberFormat('en-PH',{style:'currency',currency:'PHP'}).format(Number(n||0));
 const num  = (n,d=2) => Number(n||0).toLocaleString('en-PH',{minimumFractionDigits:d,maximumFractionDigits:d});
 const esc  = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const monthLabel = d => { const [y,m]=d.split('-'); return new Date(+y,+m-1,1).toLocaleDateString('en-PH',{month:'long',year:'numeric'}); };
+// Billing period label: billing month November 2026 → "Month of October – November 2026"
+const monthLabel = (d, prefix=true) => {
+  const [y,m]=d.split('-').map(Number);
+  const end=new Date(y,m-1,1), start=new Date(y,m-2,1);
+  const mn = dt => dt.toLocaleDateString('en-PH',{month:'long'});
+  const txt = start.getFullYear()===end.getFullYear()
+    ? `${mn(start)} – ${mn(end)} ${y}`
+    : `${mn(start)} ${start.getFullYear()} – ${mn(end)} ${y}`;
+  return prefix ? 'Month of '+txt : txt;
+};
 const shortMonth = d => { const [y,m]=d.split('-'); return new Date(+y,+m-1,1).toLocaleDateString('en-PH',{month:'short'}); };
 const dateLabel  = d => d ? new Date(d+'T00:00:00').toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}) : '—';
 const today      = () => { const t=new Date(); t.setMinutes(t.getMinutes()-t.getTimezoneOffset()); return t.toISOString().slice(0,10); };
@@ -281,7 +290,7 @@ function viewDashboard(){
         ${last?badge(last):''}</div>
       ${last?`<div class="stats">
         <div><small>Last reading</small><b>${num(last.current_reading)}</b><small>${dateLabel(last.reading_date)}</small></div>
-        <div><small>${monthLabel(last.billing_month)}</small><b>${num(last.kwh)} kWh</b><small>${peso(last.amount)}</small></div>
+        <div><small>${monthLabel(last.billing_month,false)}</small><b>${num(last.kwh)} kWh</b><small>${peso(last.amount)}</small></div>
         <div><small>Unpaid balance</small><b class="${unpaid>0?'bad':'ok'}">${peso(unpaid)}</b></div>
       </div>`:`<p class="muted">No readings yet.</p>`}
       <div class="row gap"><button class="btn" onclick="startAdd(${h.id})">➕ Add reading</button>
@@ -303,7 +312,7 @@ function viewAdd(){
     <form id="readForm" class="form">
       <label>House<select name="house_id" ${r?'disabled':''}>${S.houses.map(h=>`<option value="${h.id}" ${h.id===sel?'selected':''}>${esc(h.name)}</option>`).join('')}</select></label>
       <div class="two">
-        <label>Billing month<input type="month" name="month" required value="${r?r.billing_month.slice(0,7):thisMonth()}"></label>
+        <label>Billing month (end month)<input type="month" name="month" required value="${r?r.billing_month.slice(0,7):thisMonth()}"><small id="periodHint" style="color:var(--volt)"></small></label>
         <label>Date read<input type="date" name="reading_date" required value="${r?r.reading_date:today()}"></label>
       </div>
       <div class="two">
@@ -328,6 +337,8 @@ function bindAdd(){
       : `${num(k)} kWh × ${peso(rt)}<br><b>${peso(k*rt)}</b>`;
   };
   const autoPrev=()=>{
+    const ph=document.getElementById('periodHint');
+    if(ph) ph.textContent = f.month.value ? monthLabel(f.month.value+'-01') : '';
     if(editing) return calc();
     const hid=+f.house_id.value, m=f.month.value+'-01';
     const prev=S.readings.filter(r=>r.house_id===hid && r.billing_month<m)
@@ -419,9 +430,9 @@ function showSlip(id){
   const r=S.readings.find(x=>x.id===id), h=houseOf(r.house_id)||{};
   const row=(a,b)=>`<div class="slip-row"><span>${a}</span><span>${b}</span></div>`;
   openModal(`<div id="slip" class="slip">
-      <div class="slip-head">⚡ ${APP_NAME.toUpperCase()}<br><small>Electricity Billing Slip</small></div>
+      <div class="slip-head">⚡ ${APP_NAME.toUpperCase()}<br><small>Electricity Billing Slip</small><br><small>${monthLabel(r.billing_month)}</small></div>
       ${row('House',esc(h.name||''))}${h.owner_name?row('Name',esc(h.owner_name)):''}${h.meter_no?row('Meter no.',esc(h.meter_no)):''}
-      ${row('Billing month',monthLabel(r.billing_month))}${row('Date read',dateLabel(r.reading_date))}
+      ${row('Billing period',monthLabel(r.billing_month,false))}${row('Date read',dateLabel(r.reading_date))}
       ${row('Previous reading',num(r.previous_reading))}${row('Current reading',num(r.current_reading))}
       ${row('kWh used',num(r.kwh))}${row('Rate / kWh',peso(r.rate))}
       <div class="slip-row slip-total"><span>AMOUNT DUE</span><span>${peso(r.amount)}</span></div>
